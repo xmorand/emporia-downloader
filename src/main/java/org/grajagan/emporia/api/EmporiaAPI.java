@@ -4,7 +4,7 @@ package org.grajagan.emporia.api;
  * #%L
  * Emporia Energy API Client
  * %%
- * Copyright (C) 2002 - 2021 Helge Weissig
+ * Copyright (C) 2002 - 2020 Helge Weissig
  * %%
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as
@@ -26,6 +26,7 @@ import org.grajagan.emporia.model.Customer;
 import org.grajagan.emporia.model.Readings;
 import retrofit2.Call;
 import retrofit2.http.GET;
+import retrofit2.http.Path;
 import retrofit2.http.Query;
 
 import java.time.Instant;
@@ -34,8 +35,8 @@ public interface EmporiaAPI {
     @GET("/customers")
     Call<Customer> getCustomer(@Query("email") String email);
 
-    @GET("/customers/devices?detailed=true&hierarchy=true")
-    Call<Customer> getCustomer(@Query("customerGid") Integer customerId);
+    @GET("/customers/{customerId}/devices?detailed=true&hierarchy=true")
+    Call<Customer> getCustomer(@Path("customerId") Integer customerId);
 
     @GET("/AppAPI?apiMethod=getChartUsage")
     Call<Readings> getReadings(@Query("start") Instant start,

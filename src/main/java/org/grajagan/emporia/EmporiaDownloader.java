@@ -4,18 +4,18 @@ package org.grajagan.emporia;
  * #%L
  * Emporia Energy API Client
  * %%
- * Copyright (C) 2002 - 2021 Helge Weissig
+ * Copyright (C) 2002 - 2020 Helge Weissig
  * %%
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as
  * published by the Free Software Foundation, either version 3 of the
  * License, or (at your option) any later version.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU General Public
  * License along with this program.  If not, see
  * <http://www.gnu.org/licenses/gpl-3.0.html>.
@@ -46,6 +46,7 @@ import java.io.StringWriter;
 import java.net.URI;
 import java.nio.file.Paths;
 import java.security.Security;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.time.temporal.TemporalAmount;
@@ -54,6 +55,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 import static java.util.Arrays.asList;
 
@@ -65,10 +67,9 @@ public class EmporiaDownloader {
 
     private static final String INFLUX_URL = "influx-url";
     private static final String INFLUX_PORT = "influx-port";
-    private static final String INFLUX_ORG = "influx-org";
-    private static final String INFLUX_BUCKET = "influx-bucket";
-    private static final String INFLUX_TOKEN = "influx-token";
-    private static final String INFLUX_MEASUREMENT_NAME = "influx-measurement";
+    private static final String INFLUX_USER = "influx-user";
+    private static final String INFLUX_PASS = "influx-password";
+    private static final String INFLUX_DB = "influx-db";
     private static final String DISABLE_INFLUX = "disable-influx";
 
     static final String HISTORY = "history";
@@ -84,7 +85,7 @@ public class EmporiaDownloader {
     static final String DEFAULT_LOCAL_HOST = "localhost";
     static final String DEFAULT_INFLUX_URL = "http://" + DEFAULT_LOCAL_HOST;
     static final int DEFAULT_INFLUX_PORT = 8086;
-    static final String DEFAULT_INFLUX_DB = "electricity/autogen";
+    static final String DEFAULT_INFLUX_DB = "electricity";
 
     static final String DEFAULT_LOG_FILE =
             Paths.get("application.log").toAbsolutePath().toString();
@@ -118,7 +119,7 @@ public class EmporiaDownloader {
 
         if (!options.has(DISABLE_INFLUX)) {
             REQUIRED_PARAMETERS.add(INFLUX_URL);
-            REQUIRED_PARAMETERS.add(INFLUX_BUCKET);
+            REQUIRED_PARAMETERS.add(INFLUX_DB);
             REQUIRED_PARAMETERS.add(INFLUX_PORT);
         }
 
@@ -176,22 +177,20 @@ public class EmporiaDownloader {
                         .defaultsTo(DEFAULT_INFLUX_URL);
                 accepts(INFLUX_PORT, "InfluxDB server port").withRequiredArg()
                         .ofType(Integer.class).defaultsTo(DEFAULT_INFLUX_PORT);
-                accepts(INFLUX_ORG, "InfluxDB server org").withRequiredArg().ofType(String.class);
-                accepts(INFLUX_BUCKET, "InfluxDB bucket").withRequiredArg().ofType(String.class)
-                        .defaultsTo(DEFAULT_INFLUX_DB);
-                accepts(INFLUX_TOKEN, "InfluxDB server token").withRequiredArg()
+                accepts(INFLUX_USER, "InfluxDB server username").withRequiredArg()
                         .ofType(String.class);
-                accepts(INFLUX_MEASUREMENT_NAME,
-                        "InfluxDB measurement name\nIf left empty, measurements will be saved "
-                                + "by channel.").withRequiredArg().ofType(String.class);
+                accepts(INFLUX_PASS, "InfluxDB server password").withRequiredArg()
+                        .ofType(String.class);
+                accepts(INFLUX_DB, "InfluxDB database").withRequiredArg().ofType(String.class)
+                        .defaultsTo(DEFAULT_INFLUX_DB);
                 accepts(DISABLE_INFLUX, "disable the uploading to InfluxDB");
 
                 accepts(LoggingConfigurator.RAW, "output raw JSON readings to STDOUT");
 
-                accepts(EmporiaAPIService.SCALE,
-                        "scale of the data\nFor example, '--scale d' will "
-                                + "download a datapoint per day.").withRequiredArg()
-                        .withValuesConvertedBy(new ScaleConverter()).defaultsTo(new Scale("s"));
+                accepts(EmporiaAPIService.SCALE, "scale of the data\nFor example, '--scale d' will "
+                        + "download a datapoint per day.").withRequiredArg()
+                        .withValuesConvertedBy(new ScaleConverter())
+                        .defaultsTo(new Scale("s"));
 
                 acceptsAll(asList(HISTORY, OFFSET),
                         "history to download if no prior data is available.\nFor "
@@ -323,13 +322,15 @@ public class EmporiaDownloader {
                         influxDbUri.getHost(), configuration.getInt(INFLUX_PORT),
                         influxDbUri.getPath(), influxDbUri.getQuery(), influxDbUri.getFragment());
                 influxDBLoader = new InfluxDBLoader(influxDbUri.toURL(),
-                        configuration.getString(INFLUX_ORG),
-                        configuration.getString(INFLUX_BUCKET),
-                        configuration.getString(INFLUX_TOKEN),
-                        configuration.getString(INFLUX_MEASUREMENT_NAME));
+                        configuration.getString(INFLUX_USER), configuration.getString(INFLUX_PASS),
+                        configuration.getString(INFLUX_DB));
             } catch (Exception e) {
                 log.error("Cannot instantiate InfluxDBLoader", e);
             }
+
+            InfluxDBLoader finalInfluxDBLoader = influxDBLoader;
+            Runtime.getRuntime().addShutdownHook(
+                    new Thread(() -> Objects.requireNonNull(finalInfluxDBLoader).writeToDB()));
 
             for (Device device : customer.getDevices()) {
                 loadChannelData(device, influxDBLoader);
@@ -361,6 +362,10 @@ public class EmporiaDownloader {
                     break;
                 }
             }
+        }
+
+        if (influxDBLoader != null) {
+            influxDBLoader.writeToDB();
         }
 
         System.exit(0);
@@ -410,7 +415,7 @@ public class EmporiaDownloader {
             Instant now = Instant.now();
             long secs = scale.getAmount().get(ChronoUnit.SECONDS);
             long epSecs = now.minus(start.toEpochMilli(), ChronoUnit.MILLIS).getEpochSecond();
-            long buckets = Math.min(epSecs / secs, 2000);
+            long buckets = Math.min(epSecs/secs, 2000);
 
             Instant end = start.plus(buckets, scale.getChronoUnit());
 

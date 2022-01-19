@@ -4,7 +4,7 @@ package org.grajagan.emporia.api;
  * #%L
  * Emporia Energy API Client
  * %%
- * Copyright (C) 2002 - 2021 Helge Weissig
+ * Copyright (C) 2002 - 2020 Helge Weissig
  * %%
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as
@@ -50,9 +50,6 @@ public class EmporiaAPIService {
     public static final String SCALE    = "scale";
     public static final String MAINTENANCE_URL = "http://s3.amazonaws.com/"
             + "com.emporiaenergy.manual.ota/maintenance/maintenance.json";
-
-    private static final int WAIT_SECONDS_BETWEEN_REQUESTS = 30;
-    private static Instant lastAccess;
 
     private final EmporiaAPI emporiaAPI;
     private final String username;
@@ -107,7 +104,6 @@ public class EmporiaAPIService {
     }
 
     public Customer getCustomer() {
-        waitBetweenCalls();
         Call<Customer> customerCall = emporiaAPI.getCustomer(username);
         Customer customer = null;
         try {
@@ -124,7 +120,6 @@ public class EmporiaAPIService {
     }
 
     public Readings getReadings(Channel channel, Instant start, Instant end) {
-        waitBetweenCalls();
         Call<Readings> readingsCall = emporiaAPI.getReadings(start.truncatedTo(ChronoUnit.SECONDS),
                 end.truncatedTo(ChronoUnit.SECONDS),
                 Readings.DEFAULT_TYPE,
@@ -142,26 +137,5 @@ public class EmporiaAPIService {
             log.error("Cannot get readings!", e);
         }
         return readings;
-    }
-
-    private void waitBetweenCalls() {
-        if (lastAccess == null) {
-            lastAccess = Instant.now();
-            return;
-        }
-
-        long secsSinceLastRequest = Instant.now().getEpochSecond() - lastAccess.getEpochSecond();
-        long secsWeNeedToWait = WAIT_SECONDS_BETWEEN_REQUESTS - secsSinceLastRequest;
-
-        if (secsWeNeedToWait > 0) {
-            log.debug("Waiting " + secsWeNeedToWait + "s between calls!");
-            try {
-                Thread.sleep(1000 * secsWeNeedToWait);
-            } catch (InterruptedException e) {
-                log.warn("Interrupt: " + e.getMessage());
-            }
-        }
-
-        lastAccess = Instant.now();
     }
 }

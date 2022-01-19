@@ -4,7 +4,7 @@ package org.grajagan.emporia.api;
  * #%L
  * Emporia Energy API Client
  * %%
- * Copyright (C) 2002 - 2021 Helge Weissig
+ * Copyright (C) 2002 - 2020 Helge Weissig
  * %%
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as
@@ -44,7 +44,7 @@ public class LogJsonInterceptor implements Interceptor {
             String rawJson = response.body().string();
             String finalJson = rawJson.replaceFirst("\\{", "{\"channel\":\"" + channel + "\","
                             + "\"deviceGid\":\"" + deviceGid + "\",");
-            System.out.println(finalJson);
+            log.trace(finalJson);
 
             // Re-create the response before returning it because body can be read only once
             response = response.newBuilder()
